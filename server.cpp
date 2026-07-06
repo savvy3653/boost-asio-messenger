@@ -26,6 +26,8 @@ void Server::server_init() {
 
     sm.join();
     rg.join();
+    socket->close();
+    delete socket;
 }
 void Server::connect(boost::asio::ip::tcp::acceptor* acceptor, boost::asio::ip::tcp::socket* socket) {
     try {
@@ -41,22 +43,68 @@ void Server::read_get(boost::asio::ip::tcp::socket* socket) {
         while (true) {
             char buffer[2048];
             std::uint16_t bytes = socket->read_some(boost::asio::buffer(buffer, sizeof(buffer)));
-            std::cout << std::string(buffer, bytes);
+            {
+                std::lock_guard<std::mutex> lock(messages_mutex);
+                messages.emplace_back(std::string(buffer, bytes));
+            }
+            draw_msg();
+            draw_input(msg);
             Beep(1000, 200);
         }
-    } catch (const std::exception& e) {
+    } catch (std::exception& e) {
         std::cout << e.what() << '\n';
     }
 }
 void Server::send_msg(boost::asio::ip::tcp::socket* socket) {
     try {
+        HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+        INPUT_RECORD record;
+        DWORD events;
         while (true) {
-            std::string msg;
-            std::getline(std::cin, msg);
-            socket->write_some(boost::asio::buffer(nickname + ": " + msg + '\n'));
+            ReadConsoleInput(hIn, &record, 1, &events);
+
+            if (record.EventType != KEY_EVENT)
+                continue;
+
+            KEY_EVENT_RECORD key = record.Event.KeyEvent;
+
+            if (!key.bKeyDown)
+                continue;
+
+            char c = key.uChar.AsciiChar;
+            if (c >= 32) {
+                msg += c;
+            }
+            if (key.wVirtualKeyCode == VK_BACK) {
+                if (!msg.empty())
+                    msg.pop_back();
+            }
+            if (key.wVirtualKeyCode == VK_RETURN) {
+                {
+                    std::lock_guard<std::mutex> lock(messages_mutex);
+                    messages.emplace_back(nickname + ": " + msg + '\n');
+                }
+                socket->write_some(boost::asio::buffer(nickname + ": " + msg + '\n'));
+                msg.clear();
+            }
+            draw_msg();
+            draw_input(msg);
         }
-    } catch (const std::exception& e) {
+    } catch (std::exception& e) {
         std::cout << e.what() << '\n';
     }
+}
+
+void Server::draw_msg() {
+    system("cls");
+    for (const auto& i : messages) {
+        std::cout << i;
+    }
+}
+void Server::draw_input(const std::string& msg) {
+    std::cout << "\n> " << msg;
+}
+void Server::draw_raw_input() {
+    std::cout << "\n> ";
 }
 
