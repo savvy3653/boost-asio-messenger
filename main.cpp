@@ -1,6 +1,8 @@
 #include <iostream>
 #include <string>
 #include <boost/asio.hpp>
+#include <locale>
+#include <codecvt>
 
 #include "server.h"
 #include "client.h"
@@ -16,6 +18,8 @@ void client_logic() {
 }
 
 int main(int agrc, char* argv[]) {
+    std::locale::global(std::locale(""));
+
     std::string answer;
     while (true) {
         std::cout << "Server/Client?: ";

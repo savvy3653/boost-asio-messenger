@@ -12,7 +12,9 @@ add_executable(asio_test main.cpp
         server.cpp
         client.cpp
         server.h
-        client.h)
+        client.h
+        additions.h
+        additions.cpp)
 
 target_link_options(asio_test PRIVATE
         -static

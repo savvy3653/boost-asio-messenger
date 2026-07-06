@@ -2,10 +2,15 @@
 #include <string>
 #include <thread>
 #include <boost/asio.hpp>
+#include <codecvt>
 
 #include "server.h"
+#include "additions.h"
 
 void Server::server_init() {
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+
     std::cout << "Enter nickname: ";
     std::getline(std::cin, nickname);
     std::cout << "Enter port: ";
@@ -60,8 +65,12 @@ void Server::send_msg(boost::asio::ip::tcp::socket* socket) {
         HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
         INPUT_RECORD record;
         DWORD events;
+
+        SetConsoleOutputCP(CP_UTF8);
+        SetConsoleCP(CP_UTF8);
+
         while (true) {
-            ReadConsoleInput(hIn, &record, 1, &events);
+            ReadConsoleInputW(hIn, &record, 1, &events);
 
             if (record.EventType != KEY_EVENT)
                 continue;
@@ -71,9 +80,9 @@ void Server::send_msg(boost::asio::ip::tcp::socket* socket) {
             if (!key.bKeyDown)
                 continue;
 
-            char c = key.uChar.AsciiChar;
-            if (c >= 32) {
-                msg += c;
+            wchar_t wc = key.uChar.UnicodeChar;
+            if (wc >= 32) {
+                msg += to_utf8(wc);
             }
             if (key.wVirtualKeyCode == VK_BACK) {
                 if (!msg.empty())
