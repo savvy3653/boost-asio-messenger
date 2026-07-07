@@ -23,6 +23,7 @@ private:
     boost::asio::io_context* io_context;
     boost::asio::ip::tcp::acceptor* acceptor;
     std::string msg;
-    std::vector<std::string> messages;
+    std::vector<std::pair<std::string, std::uint8_t>> messages; // message, color
     std::mutex messages_mutex;
+    HANDLE hOut;
 };

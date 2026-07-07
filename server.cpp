@@ -10,6 +10,7 @@
 void Server::server_init() {
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
+    hOut = GetStdHandle(STD_OUTPUT_HANDLE);
 
     std::cout << "Enter nickname: ";
     std::getline(std::cin, nickname);
@@ -39,6 +40,7 @@ void Server::connect(boost::asio::ip::tcp::acceptor* acceptor, boost::asio::ip::
         std::cout << "Waiting for connection..." << '\n';
         acceptor->accept(*socket);
         std::cout << "Connection established." << '\n';
+        Beep(1000, 200);
     } catch (std::exception& e) {
         std::cout << e.what() << std::endl;
     }
@@ -48,9 +50,12 @@ void Server::read_get(boost::asio::ip::tcp::socket* socket) {
         while (true) {
             char buffer[2048];
             std::uint16_t bytes = socket->read_some(boost::asio::buffer(buffer, sizeof(buffer)));
+
+            std::string timestamp = get_time();
+            std::string full_msg = timestamp + std::string(buffer, bytes);
             {
                 std::lock_guard<std::mutex> lock(messages_mutex);
-                messages.emplace_back(std::string(buffer, bytes));
+                messages.emplace_back(full_msg, 10);
             }
             draw_msg();
             draw_input(msg);
@@ -88,12 +93,18 @@ void Server::send_msg(boost::asio::ip::tcp::socket* socket) {
                 if (!msg.empty())
                     msg.pop_back();
             }
+            /*
+              Here I separate messages in 'full_msg' and 'full_msg_for_send' to make
+              time indicator depend on each person's time zone
+            */
             if (key.wVirtualKeyCode == VK_RETURN) {
+                std::string full_msg_for_send = "<" + nickname + "> : " + msg + '\n';
+                std::string full_msg = get_time() + full_msg_for_send;
                 {
                     std::lock_guard<std::mutex> lock(messages_mutex);
-                    messages.emplace_back(nickname + ": " + msg + '\n');
+                    messages.emplace_back(full_msg, 12);
                 }
-                socket->write_some(boost::asio::buffer(nickname + ": " + msg + '\n'));
+                socket->write_some(boost::asio::buffer(full_msg_for_send));
                 msg.clear();
             }
             draw_msg();
@@ -107,13 +118,16 @@ void Server::send_msg(boost::asio::ip::tcp::socket* socket) {
 void Server::draw_msg() {
     system("cls");
     for (const auto& i : messages) {
-        std::cout << i;
+        SetConsoleTextAttribute(hOut, i.second | 0);
+        std::cout << i.first;
     }
 }
 void Server::draw_input(const std::string& msg) {
+    SetConsoleTextAttribute(hOut, 7 | 0);
     std::cout << "\n> " << msg;
 }
 void Server::draw_raw_input() {
+    SetConsoleTextAttribute(hOut, 7 | 0);
     std::cout << "\n> ";
 }
 

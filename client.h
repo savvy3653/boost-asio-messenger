@@ -17,6 +17,7 @@ private:
     std::uint16_t port{};
     boost::asio::io_context* io_context;
     std::string msg;
-    std::vector<std::string> messages;
+    std::vector<std::pair<std::string, std::uint8_t>> messages; // message, color
     std::mutex messages_mutex;
+    HANDLE hOut;
 };
