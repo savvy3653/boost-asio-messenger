@@ -9,10 +9,14 @@
 #include "client.h"
 #include "additions.h"
 
+#define BLACK_BACKGROUND 0
+#define RED_COLOR        12
+#define GREEN_COLOR      10
+#define GREY_COLOR       7
+
 void Client::client_init() {
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
-    hOut = GetStdHandle(STD_OUTPUT_HANDLE);
 
     std::string address{};
 
@@ -28,26 +32,25 @@ void Client::client_init() {
     };
     parser();
 
-    boost::asio::ip::tcp::socket* socket = new boost::asio::ip::tcp::socket(*io_context);
+    auto socket = std::make_shared<boost::asio::ip::tcp::socket>(*io_context);
 
-    boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address(ip), port);
+    const boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address(ip), port);
     try {
         socket->connect(endpoint);
         std::cout << "Connected." << '\n';
         Beep(1000, 200);
     } catch (const std::exception& e) {
-        std::cout << "Error connecting to server: " << e.what() << std::endl;
+        std::cerr << "Error connecting to server: " << e.what() << std::endl;
+        return;
     }
 
-    std::thread rg(Client::read_get, this,  socket);
-    std::thread sm(Client::send_msg, this, socket);
+    std::thread rg(&Client::read_get, this,  socket);
+    std::thread sm(&Client::send_msg, this, socket);
 
     sm.join();
     rg.join();
-    socket->close();
-    delete socket;
 }
-void Client::read_get(boost::asio::ip::tcp::socket* socket) {
+void Client::read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
     try {
         while (true) {
             char buffer[2048];
@@ -58,19 +61,19 @@ void Client::read_get(boost::asio::ip::tcp::socket* socket) {
             {
                 std::lock_guard<std::mutex> lock(messages_mutex);
                 if (std::string(buffer, bytes) == "New client connected!\n")
-                    messages.emplace_back(full_msg, 7);
+                    messages.emplace_back(full_msg, GREY_COLOR);
                 else
-                    messages.emplace_back(full_msg, 10);
+                    messages.emplace_back(full_msg, GREEN_COLOR);
             }
             draw_msg();
             draw_input(msg);
             Beep(1000, 200);
         }
     } catch (std::exception& e) {
-        std::cout << e.what() << '\n';
+        std::cerr << e.what() << '\n';
     }
 }
-void Client::send_msg(boost::asio::ip::tcp::socket* socket) {
+void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
     try {
         HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
         INPUT_RECORD record;
@@ -107,7 +110,7 @@ void Client::send_msg(boost::asio::ip::tcp::socket* socket) {
                 std::string full_msg = get_time() + full_msg_for_send;
                 {
                     std::lock_guard<std::mutex> lock(messages_mutex);
-                    messages.emplace_back(full_msg, 12);
+                    messages.emplace_back(full_msg, RED_COLOR);
                 }
                 socket->write_some(boost::asio::buffer(full_msg_for_send));
                 msg.clear();
@@ -116,23 +119,23 @@ void Client::send_msg(boost::asio::ip::tcp::socket* socket) {
             draw_input(msg);
         }
     } catch (std::exception& e) {
-        std::cout << e.what() << '\n';
+        std::cerr << e.what() << '\n';
     }
 }
 
-void Client::draw_msg() {
+const void Client::draw_msg() {
     system("cls");
     for (const auto& i : messages) {
-        SetConsoleTextAttribute(hOut, i.second | 0);
+        SetConsoleTextAttribute(hOut, i.second | BLACK_BACKGROUND);
         std::cout << i.first;
     }
 }
-void Client::draw_input(const std::string& msg) {
-    SetConsoleTextAttribute(hOut, 7 | 0);
+const void Client::draw_input(const std::string& msg) {
+    SetConsoleTextAttribute(hOut, GREY_COLOR | BLACK_BACKGROUND);
     std::cout << "\n> " << msg;
 }
-void Client::draw_raw_input() {
-    SetConsoleTextAttribute(hOut, 7 | 0);
+const void Client::draw_raw_input() {
+    SetConsoleTextAttribute(hOut, GREY_COLOR | BLACK_BACKGROUND);
     std::cout << "\n> ";
 }
 

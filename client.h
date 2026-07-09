@@ -3,13 +3,18 @@
 class Client {
 public:
     Client()
-        : io_context(new boost::asio::io_context) {}
+        : io_context(new boost::asio::io_context), hOut(GetStdHandle(STD_OUTPUT_HANDLE)) {}
+    ~Client() {
+        delete io_context;
+    }
+
     void client_init();
-    void read_get(boost::asio::ip::tcp::socket* socket);
-    void send_msg(boost::asio::ip::tcp::socket* socket);
-    void draw_msg();
-    void draw_input(const std::string& msg);
-    void draw_raw_input();
+    void read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
+    void send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
+
+    const void draw_msg();
+    const void draw_input(const std::string& msg);
+    const void draw_raw_input();
 
 private:
     std::string nickname{};

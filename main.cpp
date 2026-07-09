@@ -25,10 +25,18 @@ int main(int agrc, char* argv[]) {
         std::cout << "Server/Client?: ";
         std::getline(std::cin, answer);
         if (answer == "Server" || answer == "server") {
-            server_logic();
+            try {
+                server_logic();
+            } catch (std::exception& e) {
+                std::cout << e.what() << std::endl;
+            }
             break;
         } else if (answer == "Client" || answer == "client") {
-            client_logic();
+            try {
+                client_logic();
+            } catch (std::exception& e) {
+                std::cout << e.what() << std::endl;
+            }
             break;
         } else continue;
     }
