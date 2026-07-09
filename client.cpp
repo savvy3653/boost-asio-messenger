@@ -57,7 +57,10 @@ void Client::read_get(boost::asio::ip::tcp::socket* socket) {
             std::string full_msg = timestamp + std::string(buffer, bytes);
             {
                 std::lock_guard<std::mutex> lock(messages_mutex);
-                messages.emplace_back(full_msg, 10);
+                if (std::string(buffer, bytes) == "New client connected!\n")
+                    messages.emplace_back(full_msg, 7);
+                else
+                    messages.emplace_back(full_msg, 10);
             }
             draw_msg();
             draw_input(msg);
