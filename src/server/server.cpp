@@ -6,8 +6,8 @@
 #include <chrono>
 #include <algorithm>
 
-#include "server.h"
-#include "additions.h"
+#include "../../include/server.h"
+#include "../../include/utils.h"
 
 #define BLACK_BACKGROUND 0
 #define RED_COLOR        12
@@ -70,7 +70,7 @@ void Server::accept_client() {
 }
 void Server::handle_client(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
     try {
-        std::thread rg(Server::read_get, this, socket);
+        std::thread rg(&Server::read_get, this, socket);
         rg.join();
     } catch (std::exception& e) {
         std::erase_if(clients, [&](const auto& client) {
@@ -94,7 +94,7 @@ void Server::read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
                 messages.emplace_back(full_msg, GREEN_COLOR);
             }
             /*
-             * I redirect every client message to another clients
+             * I redirect every client message to other clients
              */
             for (const auto& client : clients) {
                 if (client != socket) {
@@ -138,8 +138,16 @@ void Server::send_msg() {
                 msg += to_utf8(wc);
             }
             if (key.wVirtualKeyCode == VK_BACK) {
-                if (!msg.empty())
-                    msg.pop_back();
+                /*
+                 * If symbol is UNICODE it has a tail which starts with 0x80 (10xxxxxx)
+                 * The symbol itself starts with 0xC0 (110xxxxx)
+                 * So we check if we need to erase 2 bytes of unicode instead of one.
+                 */
+                size_t i = msg.size() - 1;
+                while (i > 0 && (msg[i] & 0xC0) == 0x80) {
+                    i--;
+                }
+                msg.erase(i);
             }
             /*
               Here I separate messages in 'full_msg' and 'full_msg_for_send' to make

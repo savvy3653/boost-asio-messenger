@@ -6,8 +6,8 @@
 #include <Windows.h>
 #include <codecvt>
 
-#include "client.h"
-#include "additions.h"
+#include "../../include/client.h"
+#include "../../include/utils.h"
 
 #define BLACK_BACKGROUND 0
 #define RED_COLOR        12
@@ -98,8 +98,16 @@ void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
                 msg += to_utf8(wc);
             }
             if (key.wVirtualKeyCode == VK_BACK) {
-                if (!msg.empty())
-                    msg.pop_back();
+                /*
+                 * If symbol is UNICODE it has a tail which starts with 0x80 (10xxxxxx)
+                 * The symbol itself starts with 0xC0 (110xxxxx)
+                 * So we check if we need to erase 2 bytes of unicode instead of one.
+                 */
+                size_t i = msg.size() - 1;
+                while (i > 0 && (msg[i] & 0xC0) == 0x80) {
+                    i--;
+                }
+                msg.erase(i);
             }
             /*
               Here I separate messages in 'full_msg' and 'full_msg_for_send' to make

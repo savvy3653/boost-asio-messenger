@@ -8,13 +8,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Boost REQUIRED COMPONENTS system)
 
 # Создаём исполняемый файл
-add_executable(asio_test main.cpp
-        server.cpp
-        client.cpp
-        server.h
-        client.h
-        additions.h
-        additions.cpp)
+add_executable(asio_test src/main.cpp
+        src/server/server.cpp
+        src/client/client.cpp
+        include/server.h
+        include/client.h
+        include/utils.h
+        src/utils/utils.cpp)
 
 target_link_options(asio_test PRIVATE
         -static

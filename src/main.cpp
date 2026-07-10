@@ -4,8 +4,8 @@
 #include <locale>
 #include <codecvt>
 
-#include "server.h"
-#include "client.h"
+#include "../include/server.h"
+#include "../include/client.h"
 
 void server_logic() {
     Server server;

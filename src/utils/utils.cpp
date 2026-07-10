@@ -3,7 +3,7 @@
 #include <locale>
 #include <Windows.h>
 
-#include "additions.h"
+#include "../../include/utils.h"
 
 std::string to_utf8(wchar_t wc) {
     if (wc == 0) return "";
