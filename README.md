@@ -8,3 +8,7 @@ To use this messenger, follow these steps:
 5. (If server) enter port (any) by which anyone in your local network can access you.
    (If client) enter address (ip:port format, example: 127.0.0.1:15001)
 6. Congrats, it works!
+
+# Sending files
+To send file you should type: &send&C:\yourfile.exe
+This is just an example, your file could be anywhere and could have any extension!
