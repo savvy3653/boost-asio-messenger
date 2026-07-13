@@ -14,6 +14,10 @@ public:
     void handle_client(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
     void read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
     void send_msg();
+    void send_file(const std::string& filepath);
+
+    void read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
+    void read_file(char header[]);
 
     const void draw_msg();
     const void draw_input(const std::string& msg);

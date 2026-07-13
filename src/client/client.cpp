@@ -5,6 +5,7 @@
 #include <boost/asio.hpp>
 #include <Windows.h>
 #include <codecvt>
+#include <fstream>
 
 #include "../../include/client.h"
 #include "../../include/utils.h"
@@ -50,29 +51,28 @@ void Client::client_init() {
     sm.join();
     rg.join();
 }
+
 void Client::read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
     try {
         while (true) {
-            char buffer[2048];
-            std::uint16_t bytes = socket->read_some(boost::asio::buffer(buffer, sizeof(buffer)));
+            char header[5];
+            std::uint16_t bytes = socket->read_some(boost::asio::buffer(header, sizeof(header)));
 
-            std::string timestamp = get_time();
-            std::string full_msg = timestamp + std::string(buffer, bytes);
-            {
-                std::lock_guard<std::mutex> lock(messages_mutex);
-                if (std::string(buffer, bytes) == "New client connected!\n")
-                    messages.emplace_back(full_msg, GREY_COLOR);
-                else
-                    messages.emplace_back(full_msg, GREEN_COLOR);
+            // checking header for msg type
+            switch (header[0]) {
+                case M_TXT:
+                    read_msg(socket);
+                    break;
+                case M_FILE:
+                    read_file(socket, header);
+                    break;
             }
-            draw_msg();
-            draw_input(msg);
-            Beep(1000, 200);
         }
     } catch (std::exception& e) {
         std::cerr << e.what() << '\n';
     }
 }
+
 void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
     try {
         HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
@@ -98,6 +98,7 @@ void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
                 msg += to_utf8(wc);
             }
             if (key.wVirtualKeyCode == VK_BACK) {
+                if (!msg.size()) continue;
                 /*
                  * If symbol is UNICODE it has a tail which starts with 0x80 (10xxxxxx)
                  * The symbol itself starts with 0xC0 (110xxxxx)
@@ -114,14 +115,23 @@ void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
               time indicator depend on each person's time zone
             */
             if (key.wVirtualKeyCode == VK_RETURN) {
-                std::string full_msg_for_send = "<" + nickname + "> : " + msg + '\n';
-                std::string full_msg = get_time() + full_msg_for_send;
-                {
-                    std::lock_guard<std::mutex> lock(messages_mutex);
-                    messages.emplace_back(full_msg, RED_COLOR);
+                if (msg.find("&send&") != std::string::npos) {
+                    std::string filepath = msg.substr(msg.find_last_of("&") + 1);
+                    msg.clear();
+                    send_file(socket, filepath);
+                } else {
+                    std::string full_msg_for_send = "<" + nickname + "> : " + msg + '\n';
+                    std::string full_msg = get_time() + full_msg_for_send;
+                    char header[1];
+                    header[0] = static_cast<char>(MessageType::M_TXT);
+                    {
+                        std::lock_guard<std::mutex> lock(messages_mutex);
+                        messages.emplace_back(full_msg, RED_COLOR);
+                    }
+                    socket->write_some(boost::asio::buffer(header));
+                    socket->write_some(boost::asio::buffer(full_msg_for_send));
+                    msg.clear();
                 }
-                socket->write_some(boost::asio::buffer(full_msg_for_send));
-                msg.clear();
             }
             draw_msg();
             draw_input(msg);
@@ -129,6 +139,69 @@ void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
     } catch (std::exception& e) {
         std::cerr << e.what() << '\n';
     }
+}
+
+void Client::send_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, const std::string& filepath) {
+    if (filepath.find('.') == std::string::npos) {
+        std::cerr << "No file in path!\n";
+        return;
+    }
+    char buffer[1065];
+    memset(buffer, 0, sizeof(buffer));
+
+    std::ifstream file(filepath, std::ios::binary | std::ios::ate);
+
+    std::string filename = filepath.substr(filepath.find_last_of("\\") + 1);
+    std::uint32_t file_size = static_cast<std::uint32_t>(file.tellg());
+    file.seekg(0);
+
+    // header
+    buffer[0] = MessageType::M_FILE;
+    socket->write_some(boost::asio::buffer(buffer, sizeof(buffer)));
+}
+
+void Client::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
+    char buffer[2048];
+    std::uint16_t bytes = socket->read_some(boost::asio::buffer(buffer, sizeof(buffer)));
+    std::string timestamp = get_time();
+    std::string full_msg = timestamp + std::string(buffer, bytes);
+    {
+        std::lock_guard<std::mutex> lock(messages_mutex);
+        if (std::string(buffer, bytes) == "New client connected!\n")
+            messages.emplace_back(full_msg, GREY_COLOR);
+        else
+            messages.emplace_back(full_msg, GREEN_COLOR);
+    }
+    draw_msg();
+    draw_input(msg);
+    Beep(1000, 200);
+}
+
+void Client::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, const char* header) {
+    std::uint32_t file_size =
+                    (static_cast<uint32_t>(static_cast<uint8_t>(header[1])) << 24) |
+                    (static_cast<uint32_t>(static_cast<uint8_t>(header[2])) << 16) |
+                    (static_cast<uint32_t>(static_cast<uint8_t>(header[3])) << 8)  |
+                    (static_cast<uint32_t>(static_cast<uint8_t>(header[4])));
+
+    char buffer[1024];
+    std::uint16_t bytes_read = socket->read_some(boost::asio::buffer(buffer, sizeof(buffer)));
+    std::ofstream file("received.txt", std::ios::binary);
+
+    file.write(buffer, bytes_read);
+    file.close();
+
+
+    std::string message = "You received a file.\n";
+    std::string timestamp = get_time();
+    std::string full_msg = timestamp + message;
+    {
+        std::lock_guard<std::mutex> lock(messages_mutex);
+        messages.emplace_back(full_msg, GREY_COLOR);
+    }
+    draw_msg();
+    draw_input(msg);
+    Beep(1000, 200);
 }
 
 const void Client::draw_msg() {
