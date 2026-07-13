@@ -14,11 +14,12 @@ public:
     void send_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, const std::string& filepath);
 
     void read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
-    void read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, const char* header);
+    void read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]);
 
     const void draw_msg();
     const void draw_input(const std::string& msg);
     const void draw_raw_input();
+    const void draw_console_msg(const std::string& message);
 
 private:
     std::string nickname{};
@@ -29,4 +30,6 @@ private:
     std::vector<std::pair<std::string, std::uint8_t>> messages; // message, color
     std::mutex messages_mutex;
     HANDLE hOut;
+
+    std::uint32_t file_count = 0;
 };

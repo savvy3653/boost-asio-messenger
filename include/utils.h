@@ -1,6 +1,13 @@
 #pragma once
 #include <cstdint>
 
+#define BLACK_BACKGROUND 0
+#define RED_COLOR        12
+#define GREEN_COLOR      10
+#define GREY_COLOR       7
+
+#define HEADER_SIZE 32  // type(0), bytes for file length(4), bytes for file extension(27)
+
 enum MessageType : std::uint8_t {
     M_TXT = 0,
     M_FILE = 1

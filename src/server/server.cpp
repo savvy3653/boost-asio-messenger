@@ -10,11 +10,6 @@
 #include "../../include/server.h"
 #include "../../include/utils.h"
 
-#define BLACK_BACKGROUND 0
-#define RED_COLOR        12
-#define GREEN_COLOR      10
-#define GREY_COLOR       7
-
 void Server::server_init() {
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
@@ -87,7 +82,7 @@ void Server::handle_client(const std::shared_ptr<boost::asio::ip::tcp::socket>& 
 void Server::read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
     try {
         while (true) {
-            char header[5];
+            char header[HEADER_SIZE];
             socket->read_some(boost::asio::buffer(header, sizeof(header)));
 
             // checking header for msg type
@@ -96,7 +91,9 @@ void Server::read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
                     read_msg(socket);
                     break;
                 case M_FILE:
-                    read_file(header);
+                    // std::thread rf(&Server::read_file, this, socket, header);
+                    // rf.detach();
+                    read_file(socket, header);
                     break;
             }
         }
@@ -186,38 +183,40 @@ void Server::send_file(const std::string& filepath) {
         std::cerr << "No file in path!\n";
         return;
     }
-    char header[5] = {};
-    char buffer[1024] = {};
+    char header[HEADER_SIZE] = {};
+    char buffer[4096] = {};
+    const int block_size = 4096;
 
     std::ifstream file(filepath, std::ios::binary | std::ios::ate);
 
     std::string filename = filepath.substr(filepath.find_last_of("\\") + 1);
+    std::string extension = filename.substr(filename.find_last_of("."));
     std::uint32_t file_size = static_cast<std::uint32_t>(file.tellg());
     file.seekg(0);
 
-    const int block_size = 1024;
-
-    // header
+    // header (lil endian -> big endian conversion)
     header[0] = MessageType::M_FILE;
     header[1] = (file_size >> 24) & 0xFF;
     header[2] = (file_size >> 16) & 0xFF;
     header[3] = (file_size >> 8)  & 0xFF;
     header[4] = file_size & 0xFF;
+    memcpy(&header[5], extension.data(), extension.size());
+
     for (const auto& client : clients) {
         client->write_some(boost::asio::buffer(header, sizeof(header)));
     }
 
-    // while (file) {
+    while (file) {
         file.read(buffer, block_size);
         std::streamsize bytes_read = file.gcount();
 
         if (bytes_read > 0) {
             for (const auto& client : clients) {
-                client->write_some(boost::asio::buffer(buffer, sizeof(buffer)));
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                client->write_some(boost::asio::buffer(buffer, bytes_read));
+                std::this_thread::sleep_for(std::chrono::milliseconds(8));
             }
         }
-    // }
+    }
 }
 
 void Server::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
@@ -243,17 +242,49 @@ void Server::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
     Beep(1000, 200);
 }
 
-void Server::read_file(char header[]) {
-    std::string message = "You recieved a file.\n";
-    std::string timestamp = get_time();
-    std::string full_msg = timestamp + message;
-    {
-        std::lock_guard<std::mutex> lock(messages_mutex);
-        messages.emplace_back(full_msg, GREY_COLOR);
+void Server::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]) {
+    const std::uint32_t file_size =
+                    (static_cast<uint32_t>(static_cast<uint8_t>(header[1])) << 24) |
+                    (static_cast<uint32_t>(static_cast<uint8_t>(header[2])) << 16) |
+                    (static_cast<uint32_t>(static_cast<uint8_t>(header[3])) << 8)  |
+                    (static_cast<uint32_t>(static_cast<uint8_t>(header[4])));
+    std::uint32_t remaining = file_size;
+    std::string extension;
+    for (int i = 5; i < HEADER_SIZE; i++) {
+        if (!header[i]) break;
+        if (header[i])
+            extension += header[i];
     }
-    draw_msg();
-    draw_input(msg);
-    Beep(1000, 200);
+
+    char buffer[4096];
+    const size_t BLOCK_SIZE = 4096;
+    std::ofstream file("received_" + std::to_string(file_count) + extension, std::ios::binary);
+
+    draw_console_msg("Receiving received_" + std::to_string(file_count) + extension + "(" + std::to_string(file_size) + " bytes)...\n");
+
+    while (remaining > 0) {
+        size_t to_read = std::min(BLOCK_SIZE, static_cast<size_t>(remaining));
+
+        try {
+            size_t bytes_read = socket->read_some(boost::asio::buffer(buffer, to_read));
+
+            if (bytes_read == 0) {
+                std::cerr << "Connection closed during transfer.\n";
+                break;
+            }
+
+            file.write(buffer, bytes_read);
+            remaining -= bytes_read;
+
+        } catch (const std::exception& e) {
+            std::cerr << "Error receiving file: " << e.what() << std::endl;
+            break;
+        }
+    }
+    file.close();
+
+    draw_console_msg("You received a file.\n");
+    file_count++;
 }
 
 const void Server::draw_msg() {
@@ -270,4 +301,16 @@ const void Server::draw_input(const std::string& msg) {
 const void Server::draw_raw_input() {
     SetConsoleTextAttribute(hOut, GREY_COLOR | BLACK_BACKGROUND);
     std::cout << "\n> ";
+}
+
+const void Server::draw_console_msg(const std::string& message) {
+    std::string timestamp = get_time();
+    std::string full_msg = timestamp + message;
+    {
+        std::lock_guard<std::mutex> lock(messages_mutex);
+        messages.emplace_back(full_msg, GREY_COLOR);
+    }
+    draw_msg();
+    draw_input(msg);
+    Beep(1000, 200);
 }
