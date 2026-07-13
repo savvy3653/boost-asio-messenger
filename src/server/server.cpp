@@ -184,8 +184,8 @@ void Server::send_file(const std::string& filepath) {
         return;
     }
     char header[HEADER_SIZE] = {};
-    char buffer[4096] = {};
-    const int block_size = 4096;
+    char buffer[2048] = {};
+    const int block_size = 2048;
 
     std::ifstream file(filepath, std::ios::binary | std::ios::ate);
 
@@ -213,7 +213,7 @@ void Server::send_file(const std::string& filepath) {
         if (bytes_read > 0) {
             for (const auto& client : clients) {
                 client->write_some(boost::asio::buffer(buffer, bytes_read));
-                std::this_thread::sleep_for(std::chrono::milliseconds(8));
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
             }
         }
     }
@@ -256,13 +256,14 @@ void Server::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
             extension += header[i];
     }
 
-    char buffer[4096];
-    const size_t BLOCK_SIZE = 4096;
+    char buffer[2048];
+    const size_t BLOCK_SIZE = 2048;
     std::ofstream file("received_" + std::to_string(file_count) + extension, std::ios::binary);
 
     draw_console_msg("Receiving received_" + std::to_string(file_count) + extension + "(" + std::to_string(file_size) + " bytes)...\n");
 
     while (remaining > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
         size_t to_read = std::min(BLOCK_SIZE, static_cast<size_t>(remaining));
 
         try {

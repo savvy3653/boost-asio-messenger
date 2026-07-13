@@ -208,13 +208,14 @@ void Client::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
             extension += header[i];
     }
 
-    char buffer[4096];
-    const size_t BLOCK_SIZE = 4096;
+    char buffer[2048];
+    const size_t BLOCK_SIZE = 2048;
     std::ofstream file("received_" + std::to_string(file_count) + extension, std::ios::binary);
 
     draw_console_msg("Receiving received_" + std::to_string(file_count) + extension + "(" + std::to_string(file_size) + " bytes)...\n");
 
     while (remaining > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
         size_t to_read = std::min(BLOCK_SIZE, static_cast<size_t>(remaining));
 
         try {
