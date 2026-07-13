@@ -146,8 +146,8 @@ void Client::send_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
         return;
     }
     char header[HEADER_SIZE] = {};
-    char buffer[4096] = {};
-    const int block_size = 4096;
+    char buffer[2048] = {};
+    const int block_size = 2048;
 
     std::ifstream file(filepath, std::ios::binary | std::ios::ate);
 
@@ -172,7 +172,7 @@ void Client::send_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
 
         if (bytes_read > 0) {
             socket->write_some(boost::asio::buffer(buffer, bytes_read));
-            std::this_thread::sleep_for(std::chrono::milliseconds(8));
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
     }
 }
