@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <memory>
 
 #define BLACK_BACKGROUND 0
 #define RED_COLOR        12
@@ -15,3 +16,4 @@ enum MessageType : std::uint8_t {
 
 std::string to_utf8(wchar_t wc);
 std::string get_time();
+std::unique_ptr<char[]> convert_to_big_endian(std::uint32_t num);

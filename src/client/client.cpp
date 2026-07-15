@@ -39,6 +39,12 @@ void Client::client_init() {
         std::cerr << "Error connecting to server: " << e.what() << std::endl;
         return;
     }
+    auto work_guard = boost::asio::make_work_guard(*io_context);
+
+    std::thread io([this]() {
+       io_context->run();
+    });
+    io.detach();
 
     std::thread rg(&Client::read_get, this,  socket);
     std::thread sm(&Client::send_msg, this, socket);
@@ -59,8 +65,6 @@ void Client::read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
                     read_msg(socket);
                     break;
                 case M_FILE:
-                    // std::thread rf(&Client::read_file, this, socket, header);
-                    // rf.detach();
                     read_file(socket, header);
                     break;
             }
@@ -146,35 +150,42 @@ void Client::send_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
         return;
     }
     char header[HEADER_SIZE] = {};
-    char buffer[2048] = {};
-    const int block_size = 2048;
 
     std::ifstream file(filepath, std::ios::binary | std::ios::ate);
 
-    std::string filename = filepath.substr(filepath.find_last_of("\\") + 1);
-    std::string extension = filename.substr(filename.find_last_of("."));
-    std::uint32_t file_size = static_cast<std::uint32_t>(file.tellg());
+    const std::string filename = filepath.substr(filepath.find_last_of('\\') + 1);
+    const std::string extension = filename.substr(filename.find_last_of('.'));
+    const std::uint32_t file_size = static_cast<std::uint32_t>(file.tellg());
+    std::shared_ptr<char[]> data = std::make_shared<char[]>(file_size);
     file.seekg(0);
+    file.read(data.get(), file_size);
 
-    // header (lil endian -> big endian conversion)
     header[0] = MessageType::M_FILE;
-    header[1] = (file_size >> 24) & 0xFF;
-    header[2] = (file_size >> 16) & 0xFF;
-    header[3] = (file_size >> 8)  & 0xFF;
-    header[4] = file_size & 0xFF;
+    const auto converted = convert_to_big_endian(file_size);
+    memcpy(&header[1], &converted[0], 4);
     memcpy(&header[5], extension.data(), extension.size());
 
     socket->write_some(boost::asio::buffer(header, sizeof(header)));
+    async_send_file_data(socket, data, 0, file_size);
+}
 
-    while (file) {
-        file.read(buffer, block_size);
-        std::streamsize bytes_read = file.gcount();
-
-        if (bytes_read > 0) {
-            socket->write_some(boost::asio::buffer(buffer, bytes_read));
-            std::this_thread::sleep_for(std::chrono::milliseconds(16));
-        }
+void Client::async_send_file_data(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, std::shared_ptr<char[]> data, std::uint32_t offset, std::uint32_t file_size) {
+    if (offset >= file_size) {
+        draw_console_msg("File sent.\n");
+        return;
     }
+
+    auto self = shared_from_this();
+    std::uint32_t chunk = std::min<std::uint32_t>(8192, file_size - offset);
+    boost::asio::async_write(*socket, boost::asio::buffer(&data[offset], chunk),
+    [self, data, offset, file_size, socket](boost::system::error_code ec, std::size_t bytes_sent) {
+        if (ec) {
+            self->draw_console_msg("Error occurred while sending.\n");
+            return;
+        }
+        std::uint32_t new_offset = offset + static_cast<std::uint32_t>(bytes_sent);
+        self->async_send_file_data(socket, data, new_offset, file_size);
+    });
 }
 
 void Client::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
@@ -208,14 +219,14 @@ void Client::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
             extension += header[i];
     }
 
-    char buffer[2048];
-    const size_t BLOCK_SIZE = 2048;
+    char buffer[8192];
+    const size_t BLOCK_SIZE = 8192;
     std::ofstream file("received_" + std::to_string(file_count) + extension, std::ios::binary);
 
     draw_console_msg("Receiving received_" + std::to_string(file_count) + extension + "(" + std::to_string(file_size) + " bytes)...\n");
 
     while (remaining > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        std::this_thread::sleep_for(std::chrono::milliseconds(8));
         size_t to_read = std::min(BLOCK_SIZE, static_cast<size_t>(remaining));
 
         try {

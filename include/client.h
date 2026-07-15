@@ -1,6 +1,6 @@
 #pragma once
 
-class Client {
+class Client : public std::enable_shared_from_this<Client> {
 public:
     Client()
         : io_context(new boost::asio::io_context), hOut(GetStdHandle(STD_OUTPUT_HANDLE)) {}
@@ -11,7 +11,9 @@ public:
     void client_init();
     void read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
     void send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
+
     void send_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, const std::string& filepath);
+    void async_send_file_data(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, std::shared_ptr<char[]> data, std::uint32_t offset, std::uint32_t file_size);
 
     void read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
     void read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]);

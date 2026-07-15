@@ -1,6 +1,13 @@
 #pragma once
 
-class Server {
+struct Client_ {
+    std::shared_ptr<boost::asio::ip::tcp::socket> socket;
+    std::string ip;
+    std::string nickname;
+    bool sendFiles;
+};
+
+class Server : public std::enable_shared_from_this<Server> {
 public:
     Server()
         : io_context(new boost::asio::io_context), hOut(GetStdHandle(STD_OUTPUT_HANDLE)) {}
@@ -14,7 +21,9 @@ public:
     void handle_client(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
     void read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
     void send_msg();
+
     void send_file(const std::string& filepath);
+    void async_send_file_data(std::shared_ptr<Client_> Client, std::shared_ptr<char[]> data, std::uint32_t offset, std::uint32_t file_size);
 
     void read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
     void read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]);
@@ -30,7 +39,7 @@ private:
     
     boost::asio::io_context* io_context;
     boost::asio::ip::tcp::acceptor* acceptor;
-    std::vector<std::shared_ptr<boost::asio::ip::tcp::socket>> clients;
+    std::vector<std::shared_ptr<Client_>> clients;
     std::mutex clients_mutex;
 
     std::string msg{};

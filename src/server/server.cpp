@@ -6,8 +6,10 @@
 #include <chrono>
 #include <algorithm>
 #include <fstream>
+#include <ranges>
 
 #include "../../include/server.h"
+
 #include "../../include/utils.h"
 
 void Server::server_init() {
@@ -27,6 +29,13 @@ void Server::server_init() {
     )
     );
 
+    auto work_guard = boost::asio::make_work_guard(*io_context);
+
+    std::thread io([this]() {
+       io_context->run();
+    });
+    io.detach();
+
     std::thread ac(&Server::accept_client, this);
     std::thread sm(&Server::send_msg, this);
 
@@ -40,21 +49,26 @@ void Server::server_init() {
 void Server::accept_client() {
     try {
         while (true) {
+            auto client = std::make_shared<Client_>();
             auto socket = std::make_shared<boost::asio::ip::tcp::socket>(*io_context);
+            client->socket = socket;
             acceptor->accept(*socket);
-            clients.emplace_back(socket);
+            client->ip = socket->remote_endpoint().address().to_string();
+            clients.emplace_back(client);
             std::string connect_message = "New client connected!\n";
             {
                 std::lock_guard<std::mutex> lock(messages_mutex);
                 messages.emplace_back(get_time() + connect_message, GREY_COLOR);
             }
+
             draw_msg();
             draw_input(msg);
+
             /*
             * Send everyone message about new client:
             */
-            for (const auto& client : clients) {
-                client->write_some(boost::asio::buffer(connect_message));
+            for (const auto& Client : clients) {
+                Client->socket->write_some(boost::asio::buffer(connect_message));
             }
 
             std::thread hc(&Server::handle_client, this, socket);
@@ -72,7 +86,7 @@ void Server::handle_client(const std::shared_ptr<boost::asio::ip::tcp::socket>& 
         rg.join();
     } catch (std::exception& e) {
         std::erase_if(clients, [&](const auto& client) {
-            return client == socket;
+            return socket == client->socket;
         });
         socket->close();
         std::cout << "Client disconnected: " << e.what() << '\n';
@@ -91,15 +105,13 @@ void Server::read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
                     read_msg(socket);
                     break;
                 case M_FILE:
-                    // std::thread rf(&Server::read_file, this, socket, header);
-                    // rf.detach();
                     read_file(socket, header);
                     break;
             }
         }
     } catch (std::exception& e) {
         std::erase_if(clients, [&](const auto& client) {
-            return client == socket;
+            return socket == client->socket;
         });
         socket->close();
         std::cout << "Client disconnected: " << e.what() << '\n';
@@ -161,11 +173,11 @@ void Server::send_msg() {
                         std::lock_guard<std::mutex> lock(messages_mutex);
                         messages.emplace_back(full_msg, RED_COLOR);
                     }
-                    for (const auto& client : clients) {
-                        client->write_some(boost::asio::buffer(header));
+                    for (const auto& Client : clients) {
+                        Client->socket->write_some(boost::asio::buffer(header));
                     }
-                    for (const auto& client : clients) {
-                        client->write_some(boost::asio::buffer(full_msg_for_send));
+                    for (const auto& Client : clients) {
+                        Client->socket->write_some(boost::asio::buffer(full_msg_for_send));
                     }
                     msg.clear();
                 }
@@ -184,39 +196,44 @@ void Server::send_file(const std::string& filepath) {
         return;
     }
     char header[HEADER_SIZE] = {};
-    char buffer[2048] = {};
-    const int block_size = 2048;
 
     std::ifstream file(filepath, std::ios::binary | std::ios::ate);
 
-    std::string filename = filepath.substr(filepath.find_last_of("\\") + 1);
-    std::string extension = filename.substr(filename.find_last_of("."));
-    std::uint32_t file_size = static_cast<std::uint32_t>(file.tellg());
+    const std::string filename = filepath.substr(filepath.find_last_of('\\') + 1);
+    const std::string extension = filename.substr(filename.find_last_of('.'));
+    const std::uint32_t file_size = static_cast<std::uint32_t>(file.tellg());
+    std::shared_ptr<char[]> data = std::make_shared<char[]>(file_size);
     file.seekg(0);
+    file.read(data.get(), file_size);
 
-    // header (lil endian -> big endian conversion)
     header[0] = MessageType::M_FILE;
-    header[1] = (file_size >> 24) & 0xFF;
-    header[2] = (file_size >> 16) & 0xFF;
-    header[3] = (file_size >> 8)  & 0xFF;
-    header[4] = file_size & 0xFF;
+    const auto converted = convert_to_big_endian(file_size);
+    memcpy(&header[1], &converted[0], 4);
     memcpy(&header[5], extension.data(), extension.size());
 
-    for (const auto& client : clients) {
-        client->write_some(boost::asio::buffer(header, sizeof(header)));
+    for (const auto& Client : clients) {
+        Client->socket->write_some(boost::asio::buffer(header, sizeof(header)));
+        async_send_file_data(Client, data, 0, file_size);
+    }
+}
+
+void Server::async_send_file_data(std::shared_ptr<Client_> Client, std::shared_ptr<char[]> data, std::uint32_t offset, std::uint32_t file_size) {
+    if (offset >= file_size) {
+        draw_console_msg("File sent.\n");
+        return;
     }
 
-    while (file) {
-        file.read(buffer, block_size);
-        std::streamsize bytes_read = file.gcount();
-
-        if (bytes_read > 0) {
-            for (const auto& client : clients) {
-                client->write_some(boost::asio::buffer(buffer, bytes_read));
-                std::this_thread::sleep_for(std::chrono::milliseconds(16));
-            }
+    auto self = shared_from_this();
+    std::uint32_t chunk = std::min<std::uint32_t>(8192, file_size - offset);
+    boost::asio::async_write(*Client->socket, boost::asio::buffer(&data[offset], chunk),
+    [self, data, offset, file_size, Client](boost::system::error_code ec, std::size_t bytes_sent) {
+        if (ec) {
+            self->draw_console_msg("Error occurred while sending.\n");
+            return;
         }
-    }
+        std::uint32_t new_offset = offset + static_cast<std::uint32_t>(bytes_sent);
+        self->async_send_file_data(Client, data, new_offset, file_size);
+    });
 }
 
 void Server::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
@@ -232,9 +249,9 @@ void Server::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
     /*
      * I redirect every client message to other clients
      */
-    for (const auto& client : clients) {
-        if (client != socket) {
-            client->write_some(boost::asio::buffer(full_msg_for_send));
+    for (const auto& Client : clients) {
+        if (Client->socket != socket) {
+            Client->socket->write_some(boost::asio::buffer(full_msg_for_send));
         }
     }
     draw_msg();
@@ -263,7 +280,7 @@ void Server::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
     draw_console_msg("Receiving received_" + std::to_string(file_count) + extension + "(" + std::to_string(file_size) + " bytes)...\n");
 
     while (remaining > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        std::this_thread::sleep_for(std::chrono::milliseconds(8));
         size_t to_read = std::min(BLOCK_SIZE, static_cast<size_t>(remaining));
 
         try {

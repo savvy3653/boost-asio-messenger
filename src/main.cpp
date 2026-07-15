@@ -8,13 +8,13 @@
 #include "../include/client.h"
 
 void server_logic() {
-    Server server;
-    server.server_init();
+    std::shared_ptr<Server> server = std::make_shared<Server>();
+    server->server_init();
 }
 
 void client_logic() {
-    Client client;
-    client.client_init();
+    std::shared_ptr<Client> client = std::make_shared<Client>();
+    client->client_init();
 }
 
 int main(int agrc, char* argv[]) {
