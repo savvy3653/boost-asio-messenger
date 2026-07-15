@@ -6,6 +6,7 @@
 #include <Windows.h>
 #include <codecvt>
 #include <fstream>
+#include <filesystem>
 
 #include "../../include/client.h"
 #include "../../include/utils.h"
@@ -145,6 +146,11 @@ void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
 }
 
 void Client::send_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, const std::string& filepath) {
+    std::filesystem::path path(filepath);
+    if (!std::filesystem::exists(path)) {
+        draw_console_msg("Invalid path!\n");
+        return;
+    }
     if (filepath.find('.') == std::string::npos) {
         std::cerr << "No file in path!\n";
         return;

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <fstream>
 #include <ranges>
+#include <filesystem>
 
 #include "../../include/server.h"
 
@@ -191,8 +192,13 @@ void Server::send_msg() {
 }
 
 void Server::send_file(const std::string& filepath) {
+    std::filesystem::path path(filepath);
+    if (!std::filesystem::exists(path)) {
+        draw_console_msg("Invalid path!\n");
+        return;
+    }
     if (filepath.find('.') == std::string::npos) {
-        std::cerr << "No file in path!\n";
+        draw_console_msg("No file in path!\n");
         return;
     }
     char header[HEADER_SIZE] = {};
