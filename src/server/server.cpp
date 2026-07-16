@@ -226,6 +226,8 @@ void Server::send_file(const std::string& filepath) {
 void Server::async_send_file_data(std::shared_ptr<Client_> Client, std::shared_ptr<char[]> data, std::uint32_t offset, std::uint32_t file_size) {
     if (offset >= file_size) {
         draw_console_msg("File sent.\n");
+        draw_msg();
+        draw_input(msg);
         return;
     }
 

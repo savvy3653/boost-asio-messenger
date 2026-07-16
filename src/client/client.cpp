@@ -178,6 +178,8 @@ void Client::send_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
 void Client::async_send_file_data(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, std::shared_ptr<char[]> data, std::uint32_t offset, std::uint32_t file_size) {
     if (offset >= file_size) {
         draw_console_msg("File sent.\n");
+        draw_msg();
+        draw_input(msg);
         return;
     }
 
