@@ -1,4 +1,4 @@
-# Simple Asio Messenger
+# Console Asio Messenger
 To use this messenger, follow these steps:
 
 1. Download and compile the source code using CMake *or* download the latest release.
