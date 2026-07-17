@@ -3,7 +3,11 @@
 class Client : public std::enable_shared_from_this<Client> {
 public:
     Client()
+#ifdef _WIN32
         : io_context(new boost::asio::io_context), hOut(GetStdHandle(STD_OUTPUT_HANDLE)) {}
+#else
+        : io_context(new boost::asio::io_context) {}
+#endif
     ~Client() {
         delete io_context;
     }
@@ -28,10 +32,14 @@ private:
     std::string ip{};
     std::uint16_t port{};
     boost::asio::io_context* io_context;
+
     std::string msg;
     std::vector<std::pair<std::string, std::uint8_t>> messages; // message, color
     std::mutex messages_mutex;
+#ifdef _WIN32
     HANDLE hOut;
+#endif
 
     std::uint32_t file_count = 0;
+    std::shared_ptr<Settings> settings;
 };

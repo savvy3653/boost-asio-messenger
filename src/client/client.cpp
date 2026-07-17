@@ -3,17 +3,21 @@
 #include <thread>
 #include <vector>
 #include <boost/asio.hpp>
-#include <Windows.h>
 #include <codecvt>
 #include <fstream>
 #include <filesystem>
+#ifdef _WIN32
+#include <Windows.h>
+#endif
 
 #include "../../include/client.h"
 #include "../../include/utils.h"
 
 void Client::client_init() {
+#ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
+#endif
 
     std::string address{};
 
@@ -30,12 +34,15 @@ void Client::client_init() {
     parser();
 
     auto socket = std::make_shared<boost::asio::ip::tcp::socket>(*io_context);
+    settings = std::make_shared<Settings>(true, false); // receiveTXT = true, receiveFILE = false -- by default
 
     const boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address(ip), port);
     try {
         socket->connect(endpoint);
         std::cout << "Connected." << '\n';
+#ifdef _WIN32
         Beep(1000, 200);
+#endif
     } catch (const std::exception& e) {
         std::cerr << "Error connecting to server: " << e.what() << std::endl;
         return;
@@ -76,73 +83,71 @@ void Client::read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
 }
 
 void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
-    try {
-        HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
-        INPUT_RECORD record;
-        DWORD events;
+#ifdef _WIN32
+    HANDLE hIn = GetStdHandle(STD_INPUT_HANDLE);
+    INPUT_RECORD record;
+    DWORD events;
 
-        SetConsoleOutputCP(CP_UTF8);
-        SetConsoleCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
 
-        while (true) {
-            ReadConsoleInputW(hIn, &record, 1, &events);
+    while (true) {
+        ReadConsoleInputW(hIn, &record, 1, &events);
 
-            if (record.EventType != KEY_EVENT)
-                continue;
+        if (record.EventType != KEY_EVENT)
+            continue;
 
-            KEY_EVENT_RECORD key = record.Event.KeyEvent;
+        KEY_EVENT_RECORD key = record.Event.KeyEvent;
 
-            if (!key.bKeyDown)
-                continue;
+        if (!key.bKeyDown)
+            continue;
 
-            wchar_t wc = key.uChar.UnicodeChar;
-            if (wc >= 32) {
-                msg += to_utf8(wc);
-            }
-            if (key.wVirtualKeyCode == VK_BACK) {
-                if (!msg.size()) continue;
-                /*
-                 * If symbol is UNICODE it has a tail which starts with 0x80 (10xxxxxx)
-                 * The symbol itself starts with 0xC0 (110xxxxx)
-                 * So we check if we need to erase 2 bytes of unicode instead of one.
-                 */
-                size_t i = msg.size() - 1;
-                while (i > 0 && (msg[i] & 0xC0) == 0x80) {
-                    i--;
-                }
-                msg.erase(i);
-            }
-            /*
-              Here I separate messages in 'full_msg' and 'full_msg_for_send' to make
-              time indicator depend on each person's time zone
-            */
-            if (key.wVirtualKeyCode == VK_RETURN) {
-                if (msg.find("&send&") != std::string::npos) {
-                    std::string filepath = msg.substr(msg.find_last_of("&") + 1);
-                    msg.clear();
-                    // std::thread sf(&Client::send_file, this, socket, filepath);
-                    // sf.detach();
-                    send_file(socket, filepath);
-                } else {
-                    std::string full_msg_for_send = "<" + nickname + "> : " + msg + '\n';
-                    std::string full_msg = get_time() + full_msg_for_send;
-                    char header[1];
-                    header[0] = static_cast<char>(MessageType::M_TXT);
-                    {
-                        std::lock_guard<std::mutex> lock(messages_mutex);
-                        messages.emplace_back(full_msg, RED_COLOR);
-                    }
-                    socket->write_some(boost::asio::buffer(header));
-                    socket->write_some(boost::asio::buffer(full_msg_for_send));
-                    msg.clear();
-                }
-            }
-            draw_msg();
-            draw_input(msg);
+        wchar_t wc = key.uChar.UnicodeChar;
+        if (wc >= 32) {
+            msg += to_utf8(wc);
         }
-    } catch (std::exception& e) {
-        std::cerr << e.what() << '\n';
+        if (key.wVirtualKeyCode == VK_BACK) {
+            if (!msg.size()) continue;
+            /*
+              * If symbol is UNICODE it has a tail which starts with 0x80 (10xxxxxx)
+              * The symbol itself starts with 0xC0 (110xxxxx)
+              * So we check if we need to erase 2 bytes of unicode instead of one.
+              */
+            size_t i = msg.size() - 1;
+            while (i > 0 && (msg[i] & 0xC0) == 0x80) {
+                i--;
+            }
+            msg.erase(i);
+        }
+        /*
+          Here I separate messages in 'full_msg' and 'full_msg_for_send' to make
+          time indicator depend on each person's time zone
+        */
+        if (key.wVirtualKeyCode == VK_RETURN) {
+            if (msg.find("&send&") != std::string::npos) {
+                std::string filepath = msg.substr(msg.find_last_of("&") + 1);
+                msg.clear();
+                // std::thread sf(&Client::send_file, this, socket, filepath);
+                // sf.detach();
+                send_file(socket, filepath);
+            } else {
+                std::string full_msg_for_send = "<" + nickname + "> : " + msg + '\n';
+                std::string full_msg = get_time() + full_msg_for_send;
+                char header[1];
+                header[0] = static_cast<char>(MessageType::M_TXT);
+                {
+                    std::lock_guard<std::mutex> lock(messages_mutex);
+                    messages.emplace_back(full_msg, RED_COLOR);
+                }
+                socket->write_some(boost::asio::buffer(header));
+                socket->write_some(boost::asio::buffer(full_msg_for_send));
+                msg.clear();
+            }
+        }
+        draw_msg();
+        draw_input(msg);
     }
+#endif
 }
 
 void Client::send_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, const std::string& filepath) {
@@ -210,7 +215,9 @@ void Client::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
     }
     draw_msg();
     draw_input(msg);
+#ifdef _WIN32
     Beep(1000, 200);
+#endif
 }
 
 void Client::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]) {
@@ -262,16 +269,22 @@ void Client::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
 const void Client::draw_msg() {
     system("cls");
     for (const auto& i : messages) {
+#ifdef _WIN32
         SetConsoleTextAttribute(hOut, i.second | BLACK_BACKGROUND);
+#endif
         std::cout << i.first;
     }
 }
 const void Client::draw_input(const std::string& msg) {
+#ifdef _WIN32
     SetConsoleTextAttribute(hOut, GREY_COLOR | BLACK_BACKGROUND);
+#endif
     std::cout << "\n> " << msg;
 }
 const void Client::draw_raw_input() {
+#ifdef _WIN32
     SetConsoleTextAttribute(hOut, GREY_COLOR | BLACK_BACKGROUND);
+#endif
     std::cout << "\n> ";
 }
 
@@ -284,7 +297,9 @@ const void Client::draw_console_msg(const std::string& message) {
     }
     draw_msg();
     draw_input(msg);
+#ifdef _WIN32
     Beep(1000, 200);
+#endif
 }
 
 

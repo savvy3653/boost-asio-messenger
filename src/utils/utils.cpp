@@ -1,7 +1,9 @@
 #include <string>
 #include <codecvt>
 #include <locale>
-#include <Windows.h>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 
 #include "../../include/utils.h"
 
@@ -14,7 +16,8 @@ std::string to_utf8(wchar_t wc) {
     return converter.to_bytes(wstr);
 }
 
-std::string get_time() {
+std::string get_time() { // replace with chrono
+#ifdef _WIN32
     SYSTEMTIME st;
     GetLocalTime(&st);
 
@@ -25,6 +28,7 @@ std::string get_time() {
                             (st.wMinute < 10 ? "0" : "") + minute + ":" +
                             (st.wSecond < 10 ? "0" : "") + second + "] ";
     return timestamp;
+#endif
 }
 
 std::unique_ptr<char[]> convert_to_big_endian(std::uint32_t num) {
