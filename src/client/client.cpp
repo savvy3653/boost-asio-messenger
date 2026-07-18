@@ -65,6 +65,11 @@ void Client::client_init() {
     rg.join();
 }
 
+
+// -------------------------------------------------
+//                  READ SECTION
+// -------------------------------------------------
+
 void Client::read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
     try {
         while (true) {
@@ -85,6 +90,83 @@ void Client::read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
         std::cerr << e.what() << '\n';
     }
 }
+
+void Client::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]) {
+    char buffer[2048];
+    const std::uint32_t msg_size =
+                (static_cast<uint32_t>(static_cast<uint8_t>(header[1])) << 24) |
+                (static_cast<uint32_t>(static_cast<uint8_t>(header[2])) << 16) |
+                (static_cast<uint32_t>(static_cast<uint8_t>(header[3])) << 8)  |
+                (static_cast<uint32_t>(static_cast<uint8_t>(header[4])));
+    std::uint16_t bytes = boost::asio::read(*socket, boost::asio::buffer(buffer, msg_size));
+    std::string timestamp = get_time();
+    std::string full_msg = timestamp + std::string(buffer, bytes);
+    {
+        std::lock_guard<std::mutex> lock(messages_mutex);
+        if (std::string(buffer, bytes) == "New client connected!\n")
+            messages.emplace_back(full_msg, GREY_COLOR);
+        else
+            messages.emplace_back(full_msg, GREEN_COLOR);
+    }
+    draw_msg();
+    draw_input(msg);
+#ifdef _WIN32
+    Beep(1000, 200);
+#elifdef __linux__
+    LBeep(1000, 200);
+#endif
+}
+
+void Client::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]) {
+    const std::uint32_t file_size =
+                    (static_cast<uint32_t>(static_cast<uint8_t>(header[1])) << 24) |
+                    (static_cast<uint32_t>(static_cast<uint8_t>(header[2])) << 16) |
+                    (static_cast<uint32_t>(static_cast<uint8_t>(header[3])) << 8)  |
+                    (static_cast<uint32_t>(static_cast<uint8_t>(header[4])));
+    std::uint32_t remaining = file_size;
+    std::string extension;
+    for (int i = 5; i < HEADER_SIZE; i++) {
+        if (!header[i]) break;
+        if (header[i])
+            extension += header[i];
+    }
+
+    char buffer[8192];
+    const size_t BLOCK_SIZE = 8192;
+    std::ofstream file("received_" + std::to_string(file_count) + extension, std::ios::binary);
+
+    draw_console_msg("Receiving received_" + std::to_string(file_count) + extension + "(" + std::to_string(file_size) + " bytes)...\n");
+
+    while (remaining > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+        size_t to_read = std::min(BLOCK_SIZE, static_cast<size_t>(remaining));
+
+        try {
+            size_t bytes_read = boost::asio::read(*socket, boost::asio::buffer(buffer, to_read));
+
+            if (bytes_read == 0) {
+                std::cerr << "Connection closed during transfer.\n";
+                break;
+            }
+
+            file.write(buffer, bytes_read);
+            remaining -= bytes_read;
+
+        } catch (const std::exception& e) {
+            std::cerr << "Error receiving file: " << e.what() << std::endl;
+            break;
+        }
+    }
+    file.close();
+
+    draw_console_msg("You received a file.\n");
+    file_count++;
+}
+
+
+// -------------------------------------------------
+//                  SEND SECTION
+// -------------------------------------------------
 
 void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
 #ifdef _WIN32
@@ -240,84 +322,11 @@ void Client::async_send_file_data(const std::shared_ptr<boost::asio::ip::tcp::so
     });
 }
 
-void Client::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]) {
-    char buffer[2048];
-    const std::uint32_t msg_size =
-                (static_cast<uint32_t>(static_cast<uint8_t>(header[1])) << 24) |
-                (static_cast<uint32_t>(static_cast<uint8_t>(header[2])) << 16) |
-                (static_cast<uint32_t>(static_cast<uint8_t>(header[3])) << 8)  |
-                (static_cast<uint32_t>(static_cast<uint8_t>(header[4])));
-    std::uint16_t bytes = boost::asio::read(*socket, boost::asio::buffer(buffer, msg_size));
-    std::string timestamp = get_time();
-    std::string full_msg = timestamp + std::string(buffer, bytes);
-    {
-        std::lock_guard<std::mutex> lock(messages_mutex);
-        if (std::string(buffer, bytes) == "New client connected!\n")
-            messages.emplace_back(full_msg, GREY_COLOR);
-        else
-            messages.emplace_back(full_msg, GREEN_COLOR);
-    }
-    draw_msg();
-    draw_input(msg);
-#ifdef _WIN32
-    Beep(1000, 200);
-#elifdef __linux__
-    LBeep(1000, 200);
-#endif
-}
-
-void Client::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]) {
-    const std::uint32_t file_size =
-                    (static_cast<uint32_t>(static_cast<uint8_t>(header[1])) << 24) |
-                    (static_cast<uint32_t>(static_cast<uint8_t>(header[2])) << 16) |
-                    (static_cast<uint32_t>(static_cast<uint8_t>(header[3])) << 8)  |
-                    (static_cast<uint32_t>(static_cast<uint8_t>(header[4])));
-    std::uint32_t remaining = file_size;
-    std::string extension;
-    for (int i = 5; i < HEADER_SIZE; i++) {
-        if (!header[i]) break;
-        if (header[i])
-            extension += header[i];
-    }
-
-    char buffer[8192];
-    const size_t BLOCK_SIZE = 8192;
-    std::ofstream file("received_" + std::to_string(file_count) + extension, std::ios::binary);
-
-    draw_console_msg("Receiving received_" + std::to_string(file_count) + extension + "(" + std::to_string(file_size) + " bytes)...\n");
-
-    while (remaining > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(8));
-        size_t to_read = std::min(BLOCK_SIZE, static_cast<size_t>(remaining));
-
-        try {
-            size_t bytes_read = boost::asio::read(*socket, boost::asio::buffer(buffer, to_read));
-
-            if (bytes_read == 0) {
-                std::cerr << "Connection closed during transfer.\n";
-                break;
-            }
-
-            file.write(buffer, bytes_read);
-            remaining -= bytes_read;
-
-        } catch (const std::exception& e) {
-            std::cerr << "Error receiving file: " << e.what() << std::endl;
-            break;
-        }
-    }
-    file.close();
-
-    draw_console_msg("You received a file.\n");
-    file_count++;
-}
-
 const void Client::draw_msg() {
 #ifdef _WIN32
     system("cls");
 #elifdef __linux__
     system("clear");
-    std::cout << '\n';
 #endif
     for (const auto& i : messages) {
 #ifdef _WIN32
@@ -360,5 +369,4 @@ const void Client::draw_console_msg(const std::string& message) {
     LBeep(1000, 200);
 #endif
 }
-
 

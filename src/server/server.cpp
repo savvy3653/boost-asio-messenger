@@ -392,7 +392,6 @@ const void Server::draw_msg() {
     system("cls");
 #elifdef __linux__
     system("clear");
-    std::cout << '\n';
 #endif
     for (const auto& i : messages) {
 #ifdef _WIN32
