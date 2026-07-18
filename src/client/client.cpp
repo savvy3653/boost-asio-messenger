@@ -69,12 +69,12 @@ void Client::read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
     try {
         while (true) {
             char header[HEADER_SIZE];
-            std::uint16_t bytes = socket->read_some(boost::asio::buffer(header, sizeof(header)));
+            std::uint16_t bytes = boost::asio::read(*socket, boost::asio::buffer(header, sizeof(header)));
 
             // checking header for msg type
             switch (header[0]) {
                 case M_TXT:
-                    read_msg(socket);
+                    read_msg(socket, header);
                     break;
                 case M_FILE:
                     read_file(socket, header);
@@ -141,16 +141,21 @@ void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
 
         if (c == '\n' || c == '\r') {
             enterPressed = true;
-        } else if (c == 127 || c == 8) { // Backspace: DEL or BS
+        } else if (c == 127 || c == 8) {
             if (!msg.empty()) {
                 size_t i = msg.size() - 1;
-                while (i > 0 && (msg[i] & 0xC0) == 0x80) {
-                    i--;
-                }
+                while (i > 0 && (msg[i] & 0xC0) == 0x80) i--;
                 msg.erase(i);
             }
-        } else if (uc >= 32 || uc >= 0x80) {
-            // uc >= 0x80 — byte of UTF-8 symbol, copy as it is
+        } else if (c == 0x1B) {
+            // 'eating' escape-sequences
+            char seq[2];
+            if (read(STDIN_FILENO, &seq[0], 1) <= 0) continue;
+            if (seq[0] == '[' || seq[0] == 'O') {
+                read(STDIN_FILENO, &seq[1], 1); // final byte of sequence
+            }
+            continue; // add nothing to msg
+        } else if (uc >= 32) {
             msg += c;
         }
 #endif
@@ -158,20 +163,20 @@ void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
             if (msg.find("&send&") != std::string::npos) {
                 std::string filepath = msg.substr(msg.find_last_of("&") + 1);
                 msg.clear();
-                // std::thread sf(&Client::send_file, this, socket, filepath);
-                // sf.detach();
                 send_file(socket, filepath);
             } else {
                 std::string full_msg_for_send = "<" + nickname + "> : " + msg + '\n';
                 std::string full_msg = get_time() + full_msg_for_send;
-                char header[1];
+                char header[HEADER_SIZE];
                 header[0] = static_cast<char>(MessageType::M_TXT);
+                const auto converted = convert_to_big_endian(static_cast<std::uint32_t>(full_msg_for_send.size()));
+                memcpy(&header[1], &converted[0], 4);
                 {
                     std::lock_guard<std::mutex> lock(messages_mutex);
                     messages.emplace_back(full_msg, RED_COLOR);
                 }
-                socket->write_some(boost::asio::buffer(header));
-                socket->write_some(boost::asio::buffer(full_msg_for_send));
+                boost::asio::write(*socket, boost::asio::buffer(header, sizeof(header)));
+                boost::asio::write(*socket, boost::asio::buffer(full_msg_for_send, full_msg_for_send.size()));
                 msg.clear();
             }
         }
@@ -210,7 +215,7 @@ void Client::send_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
     memcpy(&header[1], &converted[0], 4);
     memcpy(&header[5], extension.data(), extension.size());
 
-    socket->write_some(boost::asio::buffer(header, sizeof(header)));
+    boost::asio::write(*socket, boost::asio::buffer(header, sizeof(header)));
     async_send_file_data(socket, data, 0, file_size);
 }
 
@@ -223,7 +228,7 @@ void Client::async_send_file_data(const std::shared_ptr<boost::asio::ip::tcp::so
     }
 
     auto self = shared_from_this();
-    std::uint32_t chunk = std::min<std::uint32_t>(8192, file_size - offset);
+    uint32_t chunk = std::min<std::uint32_t>(8192, file_size - offset);
     boost::asio::async_write(*socket, boost::asio::buffer(&data[offset], chunk),
     [self, data, offset, file_size, socket](boost::system::error_code ec, std::size_t bytes_sent) {
         if (ec) {
@@ -235,9 +240,14 @@ void Client::async_send_file_data(const std::shared_ptr<boost::asio::ip::tcp::so
     });
 }
 
-void Client::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
+void Client::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]) {
     char buffer[2048];
-    std::uint16_t bytes = socket->read_some(boost::asio::buffer(buffer, sizeof(buffer)));
+    const std::uint32_t msg_size =
+                (static_cast<uint32_t>(static_cast<uint8_t>(header[1])) << 24) |
+                (static_cast<uint32_t>(static_cast<uint8_t>(header[2])) << 16) |
+                (static_cast<uint32_t>(static_cast<uint8_t>(header[3])) << 8)  |
+                (static_cast<uint32_t>(static_cast<uint8_t>(header[4])));
+    std::uint16_t bytes = boost::asio::read(*socket, boost::asio::buffer(buffer, msg_size));
     std::string timestamp = get_time();
     std::string full_msg = timestamp + std::string(buffer, bytes);
     {
@@ -281,7 +291,7 @@ void Client::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
         size_t to_read = std::min(BLOCK_SIZE, static_cast<size_t>(remaining));
 
         try {
-            size_t bytes_read = socket->read_some(boost::asio::buffer(buffer, to_read));
+            size_t bytes_read = boost::asio::read(*socket, boost::asio::buffer(buffer, to_read));
 
             if (bytes_read == 0) {
                 std::cerr << "Connection closed during transfer.\n";
@@ -316,17 +326,23 @@ const void Client::draw_msg() {
         std::cout << i.first;
     }
 }
+
 const void Client::draw_input(const std::string& msg) {
 #ifdef _WIN32
     SetConsoleTextAttribute(hOut, GREY_COLOR | BLACK_BACKGROUND);
-#endif
     std::cout << "\n> " << msg;
+#elifdef __linux__
+    std::cout << "\r\033[K" << "\n> " << msg << std::flush;
+#endif
 }
+
 const void Client::draw_raw_input() {
 #ifdef _WIN32
     SetConsoleTextAttribute(hOut, GREY_COLOR | BLACK_BACKGROUND);
-#endif
     std::cout << "\n> ";
+#elifdef __linux__
+    std::cout << "\r\033[K" << "\n> " << std::flush;
+#endif
 }
 
 const void Client::draw_console_msg(const std::string& message) {

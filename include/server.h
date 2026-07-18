@@ -30,7 +30,7 @@ public:
     void send_file(const std::string& filepath);
     void async_send_file_data(std::shared_ptr<Client_> Client, std::shared_ptr<char[]> data, std::uint32_t offset, std::uint32_t file_size);
 
-    void read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
+    void read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]);
     void read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]);
 
     const void draw_msg();
