@@ -8,6 +8,8 @@
 #include <filesystem>
 #ifdef _WIN32
 #include <Windows.h>
+#elifdef __linux__
+#include <unistd.h>
 #endif
 
 #include "../../include/client.h"
@@ -34,7 +36,7 @@ void Client::client_init() {
     parser();
 
     auto socket = std::make_shared<boost::asio::ip::tcp::socket>(*io_context);
-    settings = std::make_shared<Settings>(true, false); // receiveTXT = true, receiveFILE = false -- by default
+    // settings = std::make_shared<Settings>(true, false); // receiveTXT = true, receiveFILE = false -- by default
 
     const boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address(ip), port);
     try {
@@ -42,6 +44,8 @@ void Client::client_init() {
         std::cout << "Connected." << '\n';
 #ifdef _WIN32
         Beep(1000, 200);
+#elifdef __linux__
+        LBeep(1000, 200);
 #endif
     } catch (const std::exception& e) {
         std::cerr << "Error connecting to server: " << e.what() << std::endl;
@@ -90,8 +94,20 @@ void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
 
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
+#elifdef __linux__
+    termios oldt{}, newt{};
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO); // disable buffer and echo
+    newt.c_cc[VMIN] = 1;              // read by 1 byte
+    newt.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+#endif
 
     while (true) {
+        bool enterPressed = false;
+
+#ifdef _WIN32
         ReadConsoleInputW(hIn, &record, 1, &events);
 
         if (record.EventType != KEY_EVENT)
@@ -107,23 +123,38 @@ void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
             msg += to_utf8(wc);
         }
         if (key.wVirtualKeyCode == VK_BACK) {
-            if (!msg.size()) continue;
-            /*
-              * If symbol is UNICODE it has a tail which starts with 0x80 (10xxxxxx)
-              * The symbol itself starts with 0xC0 (110xxxxx)
-              * So we check if we need to erase 2 bytes of unicode instead of one.
-              */
-            size_t i = msg.size() - 1;
-            while (i > 0 && (msg[i] & 0xC0) == 0x80) {
-                i--;
+            if (!msg.empty()) {
+                size_t i = msg.size() - 1;
+                while (i > 0 && (msg[i] & 0xC0) == 0x80) {
+                    i--;
+                }
+                msg.erase(i);
             }
-            msg.erase(i);
         }
-        /*
-          Here I separate messages in 'full_msg' and 'full_msg_for_send' to make
-          time indicator depend on each person's time zone
-        */
-        if (key.wVirtualKeyCode == VK_RETURN) {
+        enterPressed = (key.wVirtualKeyCode == VK_RETURN);
+#elifdef __linux__
+        char c;
+        if (read(STDIN_FILENO, &c, 1) <= 0)
+            continue;
+
+        unsigned char uc = static_cast<unsigned char>(c);
+
+        if (c == '\n' || c == '\r') {
+            enterPressed = true;
+        } else if (c == 127 || c == 8) { // Backspace: DEL or BS
+            if (!msg.empty()) {
+                size_t i = msg.size() - 1;
+                while (i > 0 && (msg[i] & 0xC0) == 0x80) {
+                    i--;
+                }
+                msg.erase(i);
+            }
+        } else if (uc >= 32 || uc >= 0x80) {
+            // uc >= 0x80 — byte of UTF-8 symbol, copy as it is
+            msg += c;
+        }
+#endif
+        if (enterPressed) {
             if (msg.find("&send&") != std::string::npos) {
                 std::string filepath = msg.substr(msg.find_last_of("&") + 1);
                 msg.clear();
@@ -147,6 +178,9 @@ void Client::send_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
         draw_msg();
         draw_input(msg);
     }
+
+#ifdef __linux__
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt); // reset terminal
 #endif
 }
 
@@ -217,6 +251,8 @@ void Client::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
     draw_input(msg);
 #ifdef _WIN32
     Beep(1000, 200);
+#elifdef __linux__
+    LBeep(1000, 200);
 #endif
 }
 
@@ -267,7 +303,12 @@ void Client::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
 }
 
 const void Client::draw_msg() {
+#ifdef _WIN32
     system("cls");
+#elifdef __linux__
+    system("clear");
+    std::cout << '\n';
+#endif
     for (const auto& i : messages) {
 #ifdef _WIN32
         SetConsoleTextAttribute(hOut, i.second | BLACK_BACKGROUND);
@@ -299,6 +340,8 @@ const void Client::draw_console_msg(const std::string& message) {
     draw_input(msg);
 #ifdef _WIN32
     Beep(1000, 200);
+#elifdef __linux__
+    LBeep(1000, 200);
 #endif
 }
 

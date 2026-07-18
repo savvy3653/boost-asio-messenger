@@ -5,7 +5,6 @@ struct Client_ {
     std::shared_ptr<boost::asio::ip::tcp::socket> socket;
     std::string ip;
     std::string nickname;
-    std::shared_ptr<Settings> settings;
 };
 
 class Server : public std::enable_shared_from_this<Server> {

@@ -10,6 +10,9 @@
 #include <filesystem>
 #ifdef _WIN32
 #include <Windows.h>
+#elifdef __linux__
+#include <unistd.h>
+#include <termios.h>
 #endif
 
 #include "../../include/server.h"
@@ -81,6 +84,8 @@ void Server::accept_client() {
             hc.detach();
 #ifdef _WIN32
             Beep(1000, 200);
+#elifdef __linux__
+            LBeep(1000, 200);
 #endif
         }
     } catch (std::exception& e) {
@@ -141,8 +146,20 @@ void Server::send_msg() {
 
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
+#elifdef __linux__
+    termios oldt{}, newt{};
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO); // disable buffer and echo
+    newt.c_cc[VMIN] = 1;              // read by 1 byte
+    newt.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+#endif
 
     while (true) {
+        bool enterPressed = false;
+
+#ifdef _WIN32
         ReadConsoleInputW(hIn, &record, 1, &events);
 
         if (record.EventType != KEY_EVENT)
@@ -158,23 +175,38 @@ void Server::send_msg() {
             msg += to_utf8(wc);
         }
         if (key.wVirtualKeyCode == VK_BACK) {
-            if (!msg.size()) continue;
-            /*
-              * If symbol is UNICODE it has a tail which starts with 0x80 (10xxxxxx)
-              * The symbol itself starts with 0xC0 (110xxxxx)
-              * So we check if we need to erase 2 bytes of unicode instead of one.
-              */
-            size_t i = msg.size() - 1;
-            while (i > 0 && (msg[i] & 0xC0) == 0x80) {
-                i--;
+            if (!msg.empty()) {
+                size_t i = msg.size() - 1;
+                while (i > 0 && (msg[i] & 0xC0) == 0x80) {
+                    i--;
+                }
+                msg.erase(i);
             }
-            msg.erase(i);
         }
-        /*
-          Here I separate messages in 'full_msg' and 'full_msg_for_send' to make
-          time indicator depend on each person's time zone
-        */
-        if (key.wVirtualKeyCode == VK_RETURN) {
+        enterPressed = (key.wVirtualKeyCode == VK_RETURN);
+#elifdef __linux__
+        char c;
+        if (read(STDIN_FILENO, &c, 1) <= 0)
+            continue;
+
+        unsigned char uc = static_cast<unsigned char>(c);
+
+        if (c == '\n' || c == '\r') {
+            enterPressed = true;
+        } else if (c == 127 || c == 8) { // Backspace: DEL or BS
+            if (!msg.empty()) {
+                size_t i = msg.size() - 1;
+                while (i > 0 && (msg[i] & 0xC0) == 0x80) {
+                    i--;
+                }
+                msg.erase(i);
+            }
+        } else if (uc >= 32 || uc >= 0x80) {
+            // uc >= 0x80 — byte of UTF-8 symbol, copy as it is
+            msg += c;
+        }
+#endif
+        if (enterPressed) {
             if (msg.find("&send&") != std::string::npos) {
                 std::string filepath = msg.substr(msg.find_last_of("&") + 1);
                 msg.clear();
@@ -183,7 +215,7 @@ void Server::send_msg() {
                 std::string full_msg_for_send = "<" + nickname + "> : " + msg + '\n';
                 std::string full_msg = get_time() + full_msg_for_send;
                 char header[1];
-                header[0] = static_cast<char>(MessageType::M_TXT);
+                header[0] = MessageType::M_TXT;
                 {
                     std::lock_guard<std::mutex> lock(messages_mutex);
                     messages.emplace_back(full_msg, RED_COLOR);
@@ -200,6 +232,9 @@ void Server::send_msg() {
         draw_msg();
         draw_input(msg);
     }
+
+#ifdef __linux__
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt); // reset terminal
 #endif
 }
 
@@ -278,6 +313,8 @@ void Server::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socke
     draw_input(msg);
 #ifdef _WIN32
     Beep(1000, 200);
+#elifdef __linux__
+    LBeep(1000, 200);
 #endif
 }
 
@@ -328,7 +365,12 @@ void Server::read_file(const std::shared_ptr<boost::asio::ip::tcp::socket>& sock
 }
 
 const void Server::draw_msg() {
+#ifdef _WIN32
     system("cls");
+#elifdef __linux__
+    system("clear");
+    std::cout << '\n';
+#endif
     for (const auto& i : messages) {
 #ifdef _WIN32
         SetConsoleTextAttribute(hOut, i.second | BLACK_BACKGROUND);
@@ -360,5 +402,7 @@ const void Server::draw_console_msg(const std::string& message) {
     draw_input(msg);
 #ifdef _WIN32
     Beep(1000, 200);
+#elifdef __linux__
+    LBeep(1000, 200);
 #endif
 }

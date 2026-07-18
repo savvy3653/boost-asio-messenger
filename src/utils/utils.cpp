@@ -17,7 +17,7 @@ std::string to_utf8(wchar_t wc) {
 }
 
 std::string get_time() { // replace with chrono
-#ifdef _WIN32
+#if 0
     SYSTEMTIME st;
     GetLocalTime(&st);
 
@@ -29,6 +29,10 @@ std::string get_time() { // replace with chrono
                             (st.wSecond < 10 ? "0" : "") + second + "] ";
     return timestamp;
 #endif
+    auto sys_now = std::chrono::system_clock::now();
+    auto local_time = std::chrono::current_zone()->to_local(sys_now);
+
+    return std::format("[{:%T}] ", std::chrono::floor<std::chrono::seconds>(local_time));
 }
 
 std::unique_ptr<char[]> convert_to_big_endian(std::uint32_t num) {
@@ -40,3 +44,10 @@ std::unique_ptr<char[]> convert_to_big_endian(std::uint32_t num) {
 
     return arr;
 }
+
+#ifdef __linux__
+void LBeep(int Hz, int msec) {
+    fprintf(stderr,"\033[10;%d]\033[11;%d]\a", Hz, msec);
+    usleep(msec*1000);
+}
+#endif

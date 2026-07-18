@@ -41,5 +41,4 @@ private:
 #endif
 
     std::uint32_t file_count = 0;
-    std::shared_ptr<Settings> settings;
 };

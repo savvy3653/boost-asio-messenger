@@ -1,13 +1,12 @@
-cmake_minimum_required(VERSION 3.20)   # можно и 3.31, но лучше чуть ниже для совместимости
+cmake_minimum_required(VERSION 3.20)
 project(asio_test)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Ищем Boost (нам нужны заголовки и библиотека system)
-find_package(Boost REQUIRED COMPONENTS system)
+find_package(Boost REQUIRED COMPONENTS)
+find_package(Threads REQUIRED)   # для pthread на Linux
 
-# Создаём исполняемый файл
 add_executable(asio_test src/main.cpp
         src/server/server.cpp
         src/client/client.cpp
@@ -16,20 +15,22 @@ add_executable(asio_test src/main.cpp
         include/utils.h
         src/utils/utils.cpp)
 
-target_link_options(asio_test PRIVATE
-        -static
-        -static-libgcc
-        -static-libstdc++
-)
-
-target_link_libraries(asio_test PRIVATE
-        ${Boost_LIBRARIES}
-        ws2_32
-        mswsock
-)
-
-# Подключаем заголовочные файлы Boost (целевой подход)
 target_include_directories(asio_test PRIVATE ${Boost_INCLUDE_DIRS})
 
-# Линкуем библиотеки: Boost.System и ws2_32 (последняя нужна для Windows)
-target_link_libraries(asio_test PRIVATE ${Boost_LIBRARIES} ws2_32)
+if(WIN32)
+    target_link_options(asio_test PRIVATE
+            -static
+            -static-libgcc
+            -static-libstdc++
+    )
+    target_link_libraries(asio_test PRIVATE
+            ${Boost_LIBRARIES}
+            ws2_32
+            mswsock
+    )
+else()
+    target_link_libraries(asio_test PRIVATE
+            ${Boost_LIBRARIES}
+            Threads::Threads
+    )
+endif()
