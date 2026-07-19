@@ -59,10 +59,13 @@ void Server::accept_client() {
         while (true) {
             auto client = std::make_shared<Client_>();
             auto socket = std::make_shared<boost::asio::ip::tcp::socket>(*io_context);
+            auto settings = std::make_shared<Settings>(true, false);
             client->socket = socket;
             acceptor->accept(*socket);
             client->ip = socket->remote_endpoint().address().to_string();
+            client->settings = settings;
             clients.emplace_back(client);
+            
 #if 0
             std::string connect_message = "New client connected!\n";
             {
@@ -81,7 +84,7 @@ void Server::accept_client() {
             }
 #endif
 
-            std::thread hc(&Server::handle_client, this, socket);
+            std::thread hc(&Server::handle_client, this, client);
             hc.detach();
 #ifdef _WIN32
             Beep(1000, 200);
@@ -94,15 +97,15 @@ void Server::accept_client() {
     }
 }
 
-void Server::handle_client(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
+void Server::handle_client(const std::shared_ptr<Client_> Client) {
     try {
-        std::thread rg(&Server::read_get, this, socket);
+        std::thread rg(&Server::read_get, this, Client);
         rg.join();
     } catch (std::exception& e) {
         std::erase_if(clients, [&](const auto& client) {
-            return socket == client->socket;
+            return Client->socket == client->socket;
         });
-        socket->close();
+        Client->socket->close();
         std::cout << "Client disconnected: " << e.what() << '\n';
     }
 }
@@ -112,36 +115,41 @@ void Server::handle_client(const std::shared_ptr<boost::asio::ip::tcp::socket>& 
 //                  READ SECTION
 // -------------------------------------------------
 
-void Server::read_get(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) {
+void Server::read_get(const std::shared_ptr<Client_> Client) {
     try {
         while (true) {
             char header[HEADER_SIZE];
-            boost::asio::read(*socket, boost::asio::buffer(header));
+            boost::asio::read(*Client->socket, boost::asio::buffer(header));
 
             // checking header for msg type
             switch (header[0]) {
                 case M_TXT:
-                    read_msg(socket, header);
+                    read_msg(Client->socket, header);
                     break;
                 case M_FILE:
-                    read_file(socket, header);
+                    read_file(Client->socket, header);
                     break;
                 case M_USR_DATA:
-                    read_user_data(socket, header);
+                    read_user_data(Client, header);
                     break;
             }
         }
     } catch (std::exception& e) {
         std::erase_if(clients, [&](const auto& client) {
-            return socket == client->socket;
+            return Client->socket == client->socket;
         });
-        socket->close();
+        Client->socket->close();
         std::cout << "Client disconnected: " << e.what() << '\n';
     }
 }
 
-void Server::read_user_data(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]) {
-    
+void Server::read_user_data(std::shared_ptr<Client_> Client, char header[]) {
+    // [0] - type 
+    // [1] - receiveTXT  
+    // [2] - receiveFILE
+
+    Client->settings->receiveTXT = static_cast<bool>(header[1]);
+    Client->settings->receiveFILE = static_cast<bool>(header[2]);
 }
 
 void Server::read_msg(const std::shared_ptr<boost::asio::ip::tcp::socket>& socket, char header[]) {

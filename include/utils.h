@@ -15,10 +15,10 @@ enum MessageType : char {
     M_USR_DATA = 3
 };
 
-// struct __attribute__((packed)) Settings {
-//     bool receiveTXT;
-//     bool receiveFILE;
-// };
+struct __attribute__((packed)) Settings {
+    bool receiveTXT;
+    bool receiveFILE;
+};
 
 std::string to_utf8(wchar_t wc);
 std::string get_time();
